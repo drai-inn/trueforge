@@ -194,6 +194,8 @@ export interface Session<TSpec extends AgentSpec = AgentSpec> {
   metrics?: SessionListMetrics;
   createdAt: string;
   updatedAt: string;
+  /** Arbitrary caller key-value metadata strings. */
+  metadata?: Record<string, string>;
 }
 
 export interface CreateSessionRequest<TSpec extends AgentSpec = AgentSpec> {
@@ -1021,6 +1023,8 @@ export interface SessionListEntry<TSpec extends AgentSpec = AgentSpec> {
   agentName?: string | null;
   /** Present when bound to a mutable / draft agent spec. */
   agentSpec?: TSpec;
+  /** Arbitrary caller key-value metadata strings. */
+  metadata?: Record<string, string>;
 }
 
 /** Params for `AgentSessionsServer.listSessionEvents` (session event timeline). */
@@ -1196,6 +1200,8 @@ export type ListSandboxEnvironmentsParams = Pick<PageParams, 'limit' | 'pageToke
 export interface SandboxEnvironmentServer<TEnvironment extends SandboxEnvironment = SandboxEnvironment> {
   listEnvironments(req?: ListSandboxEnvironmentsParams): Promise<ListResult<TEnvironment>>;
   getEnvironment(req: { name: string }): Promise<TEnvironment>;
+  /** Create only — fails if `manifest.name` is already taken. */
+  createEnvironment(req: { manifest: SandboxEnvironmentManifest }): Promise<TEnvironment>;
   createOrUpdateEnvironment(req: { manifest: SandboxEnvironmentManifest }): Promise<TEnvironment>;
   deleteEnvironment(req: { name: string }): Promise<void>;
 }

@@ -402,27 +402,20 @@ True when a value is a `${k8s-secret/...}` reference string.
 {{- end }}
 
 {{/*
-JSON `valueFrom` body from a `${k8s-secret/<secret>/<key>}` reference. The short
-`${k8s-secret/<key>}` form resolves against `envSecretName`. Lets a value carry a
-secretKeyRef as a plain string, which is the only shape a parent chart can
-override (Helm refuses to replace a map with a scalar).
+JSON `valueFrom` body from a `${k8s-secret/<secret>/<key>}` reference. The key
+must not contain `/` (the split is on `/`). Lets a value carry a secretKeyRef
+as a plain string, which is the only shape a parent chart can override (Helm
+refuses to replace a map with a scalar).
 Expects: field (values path for errors), value, root (chart context).
 */}}
 {{- define "trueforge.env.k8sSecretRef" -}}
 {{- $field := index . "field" -}}
 {{- $value := index . "value" -}}
-{{- $root := index . "root" -}}
 {{- $parts := regexSplit "/" (trimSuffix "}" $value) -1 -}}
-{{- if eq (len $parts) 2 -}}
-{{- $secret := $root.Values.envSecretName | default "" -}}
-{{- if not $secret -}}
-{{- fail (printf "%s uses ${k8s-secret/<key>} but envSecretName is empty; set envSecretName or use ${k8s-secret/<secret>/<key>}" $field) -}}
-{{- end -}}
-{{- dict "secretKeyRef" (dict "name" $secret "key" (index $parts 1) "optional" true) | toJson -}}
-{{- else if eq (len $parts) 3 -}}
+{{- if and (eq (len $parts) 3) (index $parts 1) (index $parts 2) -}}
 {{- dict "secretKeyRef" (dict "name" (index $parts 1) "key" (index $parts 2) "optional" true) | toJson -}}
 {{- else -}}
-{{- fail (printf "%s has an invalid secret reference %q; expected ${k8s-secret/<secret>/<key>} or ${k8s-secret/<key>}" $field $value) -}}
+{{- fail (printf "%s has an invalid secret reference %q; use ${k8s-secret/<secret>/<key>}. The key must not contain /" $field $value) -}}
 {{- end -}}
 {{- end }}
 
@@ -490,19 +483,34 @@ fields, wires bundled Postgres/Redis, optional OIDC, then server.extraEnv.
 {{- if .Values.redis.enabled -}}
 {{- $env = append $env (dict "name" "REDIS_URL" "value" (include "trueforge.redis.bundledUrl" .)) -}}
 {{- else if $externalRedis.enabled -}}
+{{- $credentialsSecret := $externalRedis.credentialsSecret | default "" -}}
+{{- if $credentialsSecret -}}
+{{- if or $sentinelEnabled $externalRedis.url $externalRedis.host -}}
+{{- fail "externalRedis.credentialsSecret cannot be combined with externalRedis.url, externalRedis.host, or externalRedis.sentinel" -}}
+{{- end -}}
+{{- range $key := (list "REDIS_HOST" "REDIS_PORT" "REDIS_DB" "REDIS_USERNAME" "REDIS_PASSWORD" "REDIS_TLS_ENABLED" "REDIS_TLS_CA_CERT" "REDIS_TLS_REJECT_UNAUTHORIZED" "REDIS_TLS_SERVERNAME" "REDIS_TLS_CERT" "REDIS_TLS_KEY" "REDIS_TLS_KEY_PASSPHRASE" "REDIS_SENTINEL_ENABLED" "REDIS_SENTINEL_NODES" "REDIS_SENTINEL_MASTER_NAME" "REDIS_SENTINEL_USERNAME" "REDIS_SENTINEL_PASSWORD") -}}
+{{- $env = append $env (include "trueforge.env.fromStringOrValueFrom" (dict "root" $ "name" $key "field" (printf "externalRedis.credentialsSecret/%s" $key) "value" (printf "${k8s-secret/%s/%s}" $credentialsSecret $key)) | fromJson) -}}
+{{- end -}}
+{{- else -}}
+{{- $envMap := .Values.env | default dict -}}
+{{- $envHost := index $envMap "REDIS_HOST" | default "" -}}
+{{- $envSentinelNodes := index $envMap "REDIS_SENTINEL_NODES" | default "" -}}
+{{- $envTransport := or (and (kindIs "string" $envHost) $envHost) (and (kindIs "string" $envSentinelNodes) $envSentinelNodes) -}}
 {{- if and $sentinelEnabled (or $externalRedis.url $externalRedis.host) -}}
 {{- fail "externalRedis.sentinel cannot be combined with externalRedis.url or externalRedis.host" -}}
 {{- end -}}
 {{- if and $externalRedis.url $externalRedis.host -}}
 {{- fail "externalRedis.url and externalRedis.host are mutually exclusive" -}}
 {{- end -}}
-{{- if and (not $sentinelEnabled) (not $externalRedis.url) (not $externalRedis.host) -}}
-{{- fail "externalRedis.url or externalRedis.host is required when using external Redis without sentinel" -}}
+{{- if and (not $sentinelEnabled) (not $externalRedis.url) (not $externalRedis.host) (not $envTransport) -}}
+{{- fail "externalRedis.url, externalRedis.host, or externalRedis.sentinel is required when externalRedis.credentialsSecret is empty and env does not set REDIS_HOST or REDIS_SENTINEL_NODES" -}}
 {{- end -}}
 {{- if and (not $sentinelEnabled) $externalRedis.url (or $auth.username $auth.password (ne (($externalRedis.db | default 0) | toString) "0")) -}}
 {{- fail "externalRedis.auth and a non-zero externalRedis.db are ignored when externalRedis.url is set; encode them in the url or use host mode" -}}
 {{- end -}}
-{{- if $sentinelEnabled -}}
+{{- if and (not $sentinelEnabled) (not $externalRedis.url) (not $externalRedis.host) -}}
+{{- /* Transport comes from env.REDIS_HOST or env.REDIS_SENTINEL_NODES. */ -}}
+{{- else if $sentinelEnabled -}}
 {{- $_ := required "externalRedis.sentinel.nodes is required when externalRedis.sentinel.enabled is true" (join "," $sentinel.nodes) -}}
 {{- $_ := required "externalRedis.sentinel.masterName is required when externalRedis.sentinel.enabled is true" $sentinel.masterName -}}
 {{- $env = append $env (dict "name" "REDIS_SENTINEL_ENABLED" "value" "true") -}}
@@ -535,6 +543,7 @@ fields, wires bundled Postgres/Redis, optional OIDC, then server.extraEnv.
 {{- $env = append $env (include "trueforge.env.fromStringOrValueFrom" (dict "root" $ "name" "REDIS_PASSWORD" "field" "externalRedis.auth.password" "value" $auth.password) | fromJson) -}}
 {{- end -}}
 {{- end -}}
+{{- if or $sentinelEnabled $externalRedis.url $externalRedis.host -}}
 {{- $env = append $env (dict "name" "REDIS_TLS_ENABLED" "value" (ternary "true" "false" $tlsEnabled)) -}}
 {{- if $tlsEnabled -}}
 {{- $rejectUnauthorized := true -}}
@@ -556,6 +565,8 @@ fields, wires bundled Postgres/Redis, optional OIDC, then server.extraEnv.
 {{- end -}}
 {{- if $tls.keyPassphrase -}}
 {{- $env = append $env (include "trueforge.env.fromStringOrValueFrom" (dict "root" $ "name" "REDIS_TLS_KEY_PASSPHRASE" "field" "externalRedis.tls.keyPassphrase" "value" $tls.keyPassphrase) | fromJson) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- else -}}

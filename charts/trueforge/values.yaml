@@ -148,18 +148,13 @@ controller:
 # The chart never creates that Secret. A plain string also works for local trials.
 apiKey: "placeholder-value-please-generate-your-own"
 # Extra env for BOTH server and controller: name -> scalar, { valueFrom: ... },
-# or a "${k8s-secret/<secret>/<key>}" reference string.
+# or a "${k8s-secret/<secret>/<key>}" reference string. The key must not contain "/".
 # A key that matches a chart-computed variable (POSTGRES_HOST, PUBLIC_BASE_URL,
 # ...) replaces it in place; a null value drops the override and hands the key
 # back to the chart. This is the extension point for a parent chart, which can
 # only override a key it declares as a scalar - Helm refuses to replace a map
 # with a scalar, so a default written as { valueFrom: ... } is final.
 env: {}
-# Secret the short "${k8s-secret/<key>}" form resolves against. The long
-# "${k8s-secret/<secret>/<key>}" form names its own Secret and ignores this.
-# Referenced keys are looked up with optional: true, so a missing key leaves
-# the variable unset rather than blocking the pod.
-envSecretName: ""
 # Application feature config (maps to env vars in packages/trueforge/src/config.ts).
 # clientSecret (and other secret-like fields) accept a string or
 # { valueFrom: { secretKeyRef: ... } }.
@@ -288,8 +283,12 @@ externalPostgres:
   sslCaPath: ""
 externalRedis:
   ## Use an external Redis instead of the bundled Redis (`redis.enabled` must be false).
-  ## Requires `enabled: true`, then exactly one transport: url, host, or sentinel.
+  ## Requires `enabled: true`, then exactly one transport: url, host, sentinel, or credentialsSecret.
   enabled: false
+  ## When set, read every REDIS_* key except REDIS_URL from this Secret
+  ## (`${k8s-secret/<credentialsSecret>/<KEY>}`). Mutually exclusive with url, host, and sentinel.
+  ## A parent chart sets this to a Secret it renders. The key must not contain "/".
+  credentialsSecret: ""
   ## Full connection URL, e.g. redis://:password@redis-master.databases.svc:6379.
   ## string, valueFrom, or "${k8s-secret/<secret>/<key>}".
   ## Mutually exclusive with host and sentinel.

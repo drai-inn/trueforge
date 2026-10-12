@@ -120,19 +120,15 @@ env:
 
 A parent chart that wants its own users to be able to redirect a key at a
 different Secret must declare the default as a scalar, because Helm refuses to
-replace a map with a scalar. Write such defaults as `${k8s-secret/...}` strings
-instead of `valueFrom` maps:
+replace a map with a scalar. Write such defaults as `${k8s-secret/<secret>/<key>}`
+strings instead of `valueFrom` maps. The key must not contain `/`.
 
 ```yaml
 env:
-  # Resolves against envSecretName.
-  REDIS_PASSWORD: "${k8s-secret/REDIS_PASSWORD}"
-  # Names its own Secret; a user can override the line wholesale.
   REDIS_SENTINEL_PASSWORD: "${k8s-secret/redis-passwords/application_password}"
-envSecretName: trueforge-creds
 ```
 
-Both forms render a `secretKeyRef` with `optional: true`, so a missing key
+The string renders a `secretKeyRef` with `optional: true`, so a missing key
 leaves the variable unset rather than blocking the pod. The same strings are
 accepted by every field listed under [Using Secrets](#using-secrets).
 
@@ -235,8 +231,11 @@ The server always runs peered (`STANDALONE=false`), so Redis is always required.
 Bundled by default (`redis.enabled=true`, **auth disabled** — fine only when
 Redis stays unreachable outside the cluster trust boundary). To use an
 **external** Redis, set `redis.enabled=false`, `externalRedis.enabled=true`, and exactly one
-of `externalRedis.url`, `externalRedis.host`, or Sentinel. Fields accept a string or
-`valueFrom.secretKeyRef`. url, host, and sentinel are mutually exclusive:
+of `externalRedis.url`, `externalRedis.host`, Sentinel, or `externalRedis.credentialsSecret`.
+`credentialsSecret` is a Secret name. The chart then reads every `REDIS_*` key except
+`REDIS_URL` from that Secret and does not use url, host, or Sentinel. Fields other than
+`credentialsSecret` accept a string or `valueFrom.secretKeyRef`. url, host, sentinel,
+and `credentialsSecret` are mutually exclusive:
 
 ```yaml
 redis:
@@ -333,8 +332,7 @@ OUTBOUND_URL_BLOCKED_HOSTS=["evil.example.com"]
 Prefer Kubernetes Secrets over literals in values files for production. This
 chart does **not** create Secrets for chart-owned fields — supply
 `valueFrom.secretKeyRef` or a `${k8s-secret/<secret>/<key>}` string (or create
-Secrets yourself and point at them). The short `${k8s-secret/<key>}` form
-resolves against `envSecretName`.
+Secrets yourself and point at them). The key must not contain `/`.
 
 Fields that accept string | `valueFrom.secretKeyRef` | `${k8s-secret/...}`:
 `externalPostgres.host`, `externalPostgres.port`, `externalPostgres.database`,

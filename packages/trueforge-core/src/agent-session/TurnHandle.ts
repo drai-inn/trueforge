@@ -534,18 +534,14 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
           current_context_usage: event.current_context_usage ?? null,
           completion: event.completion ?? null,
         });
-        if (event.output.length > 0) {
+        const userEvents = [...event.output, ...event.applied_user_events];
+        if (userEvents.length > 0) {
           await this.store.appendToEvents({
             ...scope,
-            events: event.output,
+            events: userEvents,
           });
         }
-        // User-input echoes stream here; agent outputs (e.g. model.message) were already streamed.
-        for (const out of event.output) {
-          if (out.type === HarnessEventType.USER_TOOL_APPROVAL || out.type === HarnessEventType.USER_TOOL_RESPONSE) {
-            yield out;
-          }
-        }
+        yield* event.applied_user_events;
         return;
       }
 

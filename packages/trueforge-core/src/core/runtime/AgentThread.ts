@@ -17,6 +17,7 @@ import {
   EventType,
   newEventId,
   type AgentInfo,
+  type AgentOutputEvent,
   type AgentParent,
   type MCPInitializeEvent,
   type MCPServerInitInfo,
@@ -622,7 +623,7 @@ export class AgentThread {
         })),
       );
       if (append) {
-        yield* this.appendToContext(append, clientSideToolResponses);
+        yield* this.appendToContext(append, [], { applied_user_events: clientSideToolResponses });
       }
     }
 
@@ -642,7 +643,7 @@ export class AgentThread {
         })),
       );
       if (append) {
-        yield* this.appendToContext(append, approvals);
+        yield* this.appendToContext(append, [], { applied_user_events: approvals });
       }
     }
   }
@@ -703,8 +704,9 @@ export class AgentThread {
 
   private *appendToContext(
     append: ThreadContextAppend,
-    output: AgentThreadAppendContext['output'],
+    output: AgentOutputEvent[],
     extras?: {
+      applied_user_events?: (UserToolApprovalEvent | UserToolResponseEvent)[];
       currentContextUsage?: CurrentContextUsage | undefined;
       usage?: CompletionUsage | undefined;
       completion?: SubAgentCompletion | undefined;
@@ -715,6 +717,7 @@ export class AgentThread {
       thread_id: append.thread_id,
       context: append.context,
       output,
+      applied_user_events: extras?.applied_user_events ?? [],
       current_context_usage: extras?.currentContextUsage ?? append.current_context_usage,
       ...(extras?.completion && { completion: extras.completion }),
     };
@@ -800,6 +803,7 @@ export class AgentThread {
       thread_id: this.threadId,
       context: [],
       output: [],
+      applied_user_events: [],
       completion,
     };
     this.preComputedCompletion ??= completion;
@@ -1050,6 +1054,7 @@ export class AgentThread {
             const append = this.toThreadContextAppend(response.context);
             if (append) {
               yield* this.appendToContext(append, response.output, {
+                applied_user_events: response.applied_user_events,
                 currentContextUsage: response.current_context_usage ?? this.currentContextUsage,
               });
             }

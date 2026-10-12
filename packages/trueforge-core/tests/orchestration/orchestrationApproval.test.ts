@@ -125,7 +125,7 @@ describe('orchestration: pause then resume on tool approval', () => {
     const ROOT_FINAL = 'note saved';
 
     const EXPECTED_TURN_2_EVENTS = [
-      // Queued approval: context decision + echo on AGENT_CONTEXT_APPEND.output.
+      // Queued approval: context decision + echo on AGENT_CONTEXT_APPEND.applied_user_events.
       {
         type: InternalEventType.AGENT_CONTEXT_APPEND,
         thread_id: ROOT_ID,
@@ -136,7 +136,7 @@ describe('orchestration: pause then resume on tool approval', () => {
             approval: { status: 'allow' },
           },
         ],
-        output: [
+        applied_user_events: [
           {
             type: EventType.USER_TOOL_APPROVAL,
             thread_id: ROOT_ID,
@@ -235,7 +235,7 @@ describe('orchestration: pause then resume on tool approval', () => {
     const ROOT_FINAL = 'ok, I will not write the note';
 
     const EXPECTED_TURN_2_EVENTS = [
-      // Queued deny: context decision + echo on AGENT_CONTEXT_APPEND.output.
+      // Queued deny: context decision + echo on AGENT_CONTEXT_APPEND.applied_user_events.
       {
         type: InternalEventType.AGENT_CONTEXT_APPEND,
         thread_id: ROOT_ID,
@@ -246,7 +246,7 @@ describe('orchestration: pause then resume on tool approval', () => {
             approval: { status: 'deny', reason: DENY_REASON },
           },
         ],
-        output: [
+        applied_user_events: [
           {
             type: EventType.USER_TOOL_APPROVAL,
             thread_id: ROOT_ID,
@@ -461,10 +461,8 @@ describe('orchestration: a policy that lands mid-pause resolves an existing pend
     const appliedTypes: string[] = [];
     for (const event of resumed.events) {
       if (event.type === InternalEventType.AGENT_CONTEXT_APPEND) {
-        for (const out of event.output) {
-          if (out.type === EventType.USER_TOOL_APPROVAL || out.type === EventType.USER_TOOL_RESPONSE) {
-            appliedTypes.push(out.type);
-          }
+        for (const out of event.applied_user_events) {
+          appliedTypes.push(out.type);
         }
       } else if (event.type === InternalEventType.APPROVAL_POLICY_APPLY) {
         appliedTypes.push(EventType.USER_TOOL_APPROVAL_POLICY);

@@ -137,8 +137,10 @@ export interface AgentThreadCreateSubAgent {
 
 export interface AgentThreadAppendContext extends ThreadContextAppend {
   type: typeof InternalEventType.AGENT_CONTEXT_APPEND;
-  /** Agent outputs and user approval/response processed during this append. */
-  output: (AgentOutputEvent | UserToolApprovalEvent | UserToolResponseEvent)[];
+  /** Agent outputs published with this append (model.message, tool.response, …). */
+  output: AgentOutputEvent[];
+  /** Inbound user events applied with this append (approval / client tool-responses) */
+  applied_user_events: (UserToolApprovalEvent | UserToolResponseEvent)[];
   completion?: SubAgentCompletion | undefined;
 }
 

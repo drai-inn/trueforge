@@ -2,27 +2,25 @@ import type { InsertTurnInboundEventsInput } from '@truefoundry/trueforge-core/a
 
 type InboundInsertEvent = InsertTurnInboundEventsInput['events'][number];
 
-/** First repeated `event_id` in the batch (input order), if any. */
-export function firstDuplicateEventIdInBatch(
-  events: readonly Pick<InboundInsertEvent, 'event_id'>[],
-): string | undefined {
+/** First repeated event id in the batch (input order), if any. */
+export function firstDuplicateEventIdInBatch(events: readonly Pick<InboundInsertEvent, 'id'>[]): string | undefined {
   const seen = new Set<string>();
   for (const event of events) {
-    if (seen.has(event.event_id)) {
-      return event.event_id;
+    if (seen.has(event.id)) {
+      return event.id;
     }
-    seen.add(event.event_id);
+    seen.add(event.id);
   }
   return undefined;
 }
 
 /**
- * After a unique/PK violation, pick the colliding id: first input `event_id`
+ * After a unique/PK violation, pick the colliding id: first input event id
  * that already exists.
  */
 export function firstCollidingEventId(
-  events: readonly Pick<InboundInsertEvent, 'event_id'>[],
+  events: readonly Pick<InboundInsertEvent, 'id'>[],
   existingEventIds: ReadonlySet<string>,
 ): string {
-  return events.find(e => existingEventIds.has(e.event_id))?.event_id ?? events[0]?.event_id ?? '';
+  return events.find(e => existingEventIds.has(e.id))?.id ?? events[0]?.id ?? '';
 }

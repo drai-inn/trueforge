@@ -11,7 +11,7 @@ import type {
   SessionMetrics,
   SessionSource,
   TurnState,
-  TurnUserEventMessage,
+  TurnUserEvent,
 } from '@truefoundry/trueforge-core/agent-session';
 import type {
   AgentInfo,
@@ -264,7 +264,7 @@ export interface TurnInboundEventsTable {
   session_id: string;
   turn_id: string;
   event_id: string;
-  payload: JSONColumnType<TurnUserEventMessage, TurnUserEventMessage, TurnUserEventMessage>;
+  payload: JSONColumnType<TurnUserEvent, TurnUserEvent, TurnUserEvent>;
   consumed: boolean;
   created_at: Date;
 }

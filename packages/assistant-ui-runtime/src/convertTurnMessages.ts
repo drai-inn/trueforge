@@ -586,9 +586,7 @@ function turnFromCreatedEvent(options: {
     id: turnId,
     sessionId,
     state:
-      update?.state.status === TURN_STATUS.PAUSED
-        ? { status: TURN_STATUS.PAUSED }
-        : { status: TURN_STATUS.RUNNING },
+      update?.state.status === TURN_STATUS.PAUSED ? { status: TURN_STATUS.PAUSED } : { status: TURN_STATUS.RUNNING },
     createdAt: event.createdAt,
     ...(event.input != null ? { input: event.input } : {}),
     ...(event.previousTurnId === undefined ? {} : { previousTurnId: event.previousTurnId }),

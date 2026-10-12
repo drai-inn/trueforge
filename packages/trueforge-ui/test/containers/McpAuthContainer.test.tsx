@@ -200,7 +200,11 @@ describe('McpAuthContainer', () => {
     const server = createMockAgentUIServer({ catalog });
 
     render(
-      <McpAuthHarness pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }} continueMcpAuth={continueMcpAuth} server={server} />,
+      <McpAuthHarness
+        pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }}
+        continueMcpAuth={continueMcpAuth}
+        server={server}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
@@ -233,7 +237,11 @@ describe('McpAuthContainer', () => {
     const server = createMockAgentUIServer({ catalog });
 
     render(
-      <McpAuthHarness pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }} continueMcpAuth={continueMcpAuth} server={server} />,
+      <McpAuthHarness
+        pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }}
+        continueMcpAuth={continueMcpAuth}
+        server={server}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
@@ -266,7 +274,11 @@ describe('McpAuthContainer', () => {
     const server = createMockAgentUIServer({ catalog, getMcpConnector });
 
     render(
-      <McpAuthHarness pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }} continueMcpAuth={continueMcpAuth} server={server} />,
+      <McpAuthHarness
+        pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }}
+        continueMcpAuth={continueMcpAuth}
+        server={server}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
@@ -305,7 +317,11 @@ describe('McpAuthContainer', () => {
     const server = createMockAgentUIServer({ catalog });
 
     const { unmount } = render(
-      <McpAuthHarness pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }} continueMcpAuth={continueMcpAuth} server={server} />,
+      <McpAuthHarness
+        pendingMcpAuth={{ mcpServers: [GITHUB_SERVER] }}
+        continueMcpAuth={continueMcpAuth}
+        server={server}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));

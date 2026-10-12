@@ -125,7 +125,7 @@ export type ContextMessage = LLMContextMessage | ApprovalDecisionMessage;
 export interface ThreadContextAppend {
   thread_id: string;
   context: ContextMessage[];
-  current_context_usage?: CurrentContextUsage | undefined;
+  current_context_usage: CurrentContextUsage | null;
 }
 
 export interface AgentThreadCreateSubAgent {

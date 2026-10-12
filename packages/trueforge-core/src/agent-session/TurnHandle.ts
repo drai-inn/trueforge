@@ -531,7 +531,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
           ...scope,
           thread_id: event.thread_id,
           context: event.context,
-          current_context_usage: event.current_context_usage ?? null,
+          current_context_usage: event.current_context_usage,
           completion: event.completion ?? null,
         });
         const userEvents = [...event.output, ...event.applied_user_events];
@@ -566,7 +566,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
             ...scope,
             thread_id: append.thread_id,
             context: append.context,
-            current_context_usage: append.current_context_usage ?? null,
+            current_context_usage: append.current_context_usage,
             completion: null,
           });
         }

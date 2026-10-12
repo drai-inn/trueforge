@@ -674,7 +674,7 @@ export class AgentThread {
 
   applyContextAppend(append: Pick<ThreadContextAppend, 'context' | 'current_context_usage'>): void {
     this.context = this.context.concat(append.context);
-    if (append.current_context_usage !== undefined) {
+    if (append.current_context_usage !== null) {
       this.currentContextUsage = append.current_context_usage;
     }
   }
@@ -804,6 +804,7 @@ export class AgentThread {
       context: [],
       output: [],
       applied_user_events: [],
+      current_context_usage: null,
       completion,
     };
     this.preComputedCompletion ??= completion;
@@ -1055,7 +1056,9 @@ export class AgentThread {
             if (append) {
               yield* this.appendToContext(append, response.output, {
                 applied_user_events: response.applied_user_events,
-                currentContextUsage: response.current_context_usage ?? this.currentContextUsage,
+                ...(response.current_context_usage !== null
+                  ? { currentContextUsage: response.current_context_usage }
+                  : {}),
               });
             }
             break;

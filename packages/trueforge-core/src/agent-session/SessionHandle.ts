@@ -53,7 +53,7 @@ function collectContextAppends(
       const existing = appendMap.get(event.thread_id);
       if (existing) {
         existing.context.push(...event.context);
-        if (event.current_context_usage !== undefined) {
+        if (event.current_context_usage !== null) {
           existing.current_context_usage = event.current_context_usage;
         }
         if (event.completion !== undefined) {
@@ -63,7 +63,7 @@ function collectContextAppends(
         appendMap.set(event.thread_id, {
           thread_id: event.thread_id,
           context: [...event.context],
-          current_context_usage: event.current_context_usage ?? null,
+          current_context_usage: event.current_context_usage,
           completion: event.completion ?? null,
         });
       }

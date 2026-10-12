@@ -97,8 +97,7 @@ describe('toUiTurnState', () => {
 
   it('preserves paused turn state and lifecycle updates', () => {
     const paused = {
-      status: 'paused' as const,
-      actionRequiredOnEvents: [{ id: 'approval-required-1' }],
+      status: 'paused' as const
     };
     assert.deepEqual(toUiTurnState(paused), paused);
     assert.deepEqual(

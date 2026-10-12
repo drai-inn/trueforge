@@ -398,7 +398,7 @@ True when a value is a `${k8s-secret/...}` reference string.
 */}}
 {{- define "trueforge.env.isSecretRef" -}}
 {{- $v := index . "value" -}}
-{{- if and (kindIs "string" $v) (hasPrefix "${k8s-secret" $v) -}}true{{- end -}}
+{{- if and (kindIs "string" $v) (hasPrefix "${k8s-secret/" $v) -}}true{{- end -}}
 {{- end }}
 
 {{/*

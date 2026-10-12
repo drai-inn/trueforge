@@ -531,15 +531,17 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
           ...scope,
           thread_id: event.thread_id,
           context: event.context,
-          current_context_usage: event.current_context_usage ?? null,
+          current_context_usage: event.current_context_usage,
           completion: event.completion ?? null,
         });
-        if (event.output.length > 0) {
+        const userEvents = [...event.output, ...event.applied_user_events];
+        if (userEvents.length > 0) {
           await this.store.appendToEvents({
             ...scope,
-            events: event.output,
+            events: userEvents,
           });
         }
+        yield* event.applied_user_events;
         return;
       }
 
@@ -557,28 +559,26 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
         return;
       }
 
-      case InternalEventType.USER_EVENTS_COMMIT: {
-        // These run sequentially today; once a DB store lands they collapse into one transaction
+      case InternalEventType.APPROVAL_POLICY_APPLY: {
+        // Sequential today; once a DB store lands these collapse into one transaction.
         for (const append of event.context_appends) {
           await this.store.appendToThreadContext({
             ...scope,
             thread_id: append.thread_id,
             context: append.context,
-            current_context_usage: append.current_context_usage ?? null,
-            completion: append.completion ?? null,
+            current_context_usage: append.current_context_usage,
+            completion: null,
           });
-          if (append.output.length > 0) {
-            await this.store.appendToEvents({ ...scope, events: append.output });
-          }
         }
         if (event.mcp_servers_patches.length > 0) {
           await this.store.patchMCPServers({ ...scope, mcp_servers: event.mcp_servers_patches });
         }
-        if (event.applied_user_events.length > 0) {
-          await this.store.appendToEvents({ ...scope, events: event.applied_user_events });
-        }
-        // TODO(durable-inbox): mark event.applied_user_events consumed.
-        yield* event.applied_user_events;
+        await this.store.appendToEvents({
+          ...scope,
+          events: [event.event],
+        });
+        // TODO(durable-inbox): mark event.event consumed.
+        yield event.event;
         return;
       }
 

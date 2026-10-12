@@ -240,7 +240,8 @@ export const ModelMessageEventSchema = EnrichedAssistantMessageSchema.omit({ rol
       .describe('Model finish reason; null when the provider omitted it.'),
     created_at: z.string().describe('ISO 8601 event timestamp.'),
     usage: ModelMessageUsageSchema.optional(),
-    model: ModelSchema,
+    // Optional: legacy rows may lack model when the session agent FQN cannot be backfilled.
+    model: ModelSchema.optional().describe('Catalog model FQN (`provider/model`) that produced this message.'),
   })
   .openapi('ModelMessageEvent');
 

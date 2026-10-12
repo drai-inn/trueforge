@@ -3,4 +3,4 @@
 '@truefoundry/trueforge': patch
 ---
 
-Require AgentSpec-shaped `model` (`{ name: provider/model, params? }`) on every `model.message` event, stamp it from the bound agent definition, and backfill existing session events / turn outputs from the session agent model FQN.
+Add optional AgentSpec-shaped `model` (`{ name: provider/model, params? }`) on `model.message` events, stamp it from the bound agent definition for new turns, and backfill the session tip turn's events / turn output from the session agent model FQN.

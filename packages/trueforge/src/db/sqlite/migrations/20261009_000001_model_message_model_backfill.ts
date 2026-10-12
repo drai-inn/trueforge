@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 
 /**
  * SQLite mirror of postgres/migrations/20261009_000001_model_message_model_backfill.ts.
+ * Backfills only each session's tip turn (`last_turn_id`).
  */
 export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
   await db.transaction().execute(async trx => {
@@ -15,6 +16,7 @@ export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
       FROM (
         SELECT
           s.session_id AS sid,
+          s.last_turn_id AS tip_turn_id,
           COALESCE(
             json_extract(s.agent_spec, '$.model.name'),
             json_extract(a.manifest, '$.model.name')
@@ -25,6 +27,8 @@ export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
          AND a.id = s.agent_id
       ) m
       WHERE session_event.session_id = m.sid
+        AND m.tip_turn_id IS NOT NULL
+        AND session_event.turn_id = m.tip_turn_id
         AND json_extract(session_event.event, '$.type') = 'model.message'
         AND json_extract(session_event.event, '$.model') IS NULL
         AND m.model_name IS NOT NULL
@@ -40,6 +44,7 @@ export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
       FROM (
         SELECT
           s.session_id AS sid,
+          s.last_turn_id AS tip_turn_id,
           COALESCE(
             json_extract(s.agent_spec, '$.model.name'),
             json_extract(a.manifest, '$.model.name')
@@ -50,6 +55,8 @@ export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
          AND a.id = s.agent_id
       ) m
       WHERE turn.session_id = m.sid
+        AND m.tip_turn_id IS NOT NULL
+        AND turn.turn_id = m.tip_turn_id
         AND json_extract(turn.state, '$.output.type') = 'model.message'
         AND json_extract(turn.state, '$.output.model') IS NULL
         AND m.model_name IS NOT NULL
@@ -58,6 +65,7 @@ export async function up<TDatabase>(db: Kysely<TDatabase>): Promise<void> {
 }
 
 /** Data backfill — not reversed. */
-export async function down(db: Kysely<unknown>): Promise<void> {
+export function down(db: Kysely<unknown>): Promise<void> {
   void db;
+  return Promise.reject(new Error('20261009_000001_model_message_model_backfill is irreversible'));
 }

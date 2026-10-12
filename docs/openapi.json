@@ -3174,7 +3174,14 @@
             "type": "string"
           },
           "model": {
-            "$ref": "#/components/schemas/Model"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Model"
+              },
+              {
+                "description": "Catalog model FQN (`provider/model`) that produced this message."
+              }
+            ]
           },
           "name": {
             "description": "Optional participant name.",
@@ -3215,8 +3222,7 @@
           "type",
           "id",
           "thread_id",
-          "created_at",
-          "model"
+          "created_at"
         ],
         "type": "object"
       },

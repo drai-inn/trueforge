@@ -223,6 +223,28 @@ describe('MCP OAuth authorize + callback', () => {
     expect(await reauthorize.json()).toEqual({ status: 'authenticated' });
   });
 
+  it('authorize records the resource on a client that predates it, keeping its registration and tokens', async () => {
+    const userRef = STANDALONE_REQUEST_CONTEXT.subject.id;
+    const state = await pendingState('legacy-mcp');
+    const callback = await oauthRouter.request(`/callback?state=${encodeURIComponent(state)}&code=auth-code-1`);
+    expect(callback.status).toBe(200);
+    const record = await mcpServerStore.getServer({ tenant_id: 'default', name: 'legacy-mcp' });
+    const id = record?.id ?? '';
+    const registered = await mcpServerStore.getClient({ id });
+    if (registered === undefined) throw new Error('expected a registered client');
+
+    // A row written before the resource was recorded.
+    const { resource: _dropped, ...legacyServer } = registered.server;
+    await mcpServerStore.saveClient({ id, record: { ...registered, server: legacyServer } });
+
+    const authorize = await mcpServersRouter.request('/legacy-mcp/authorize');
+    expect(await authorize.json()).toEqual({ status: 'authenticated' });
+    const updated = await mcpServerStore.getClient({ id });
+    expect(updated?.server.resource).toBe(MCP_URL);
+    expect(updated?.client).toEqual(registered.client);
+    expect(await tokenStore.getToken({ id, userRef })).toBeDefined();
+  });
+
   it('callback rejects when the completing browser has no session', async () => {
     const state = await pendingState('oauth-mcp-no-session', FE_RETURN_TO);
     callbackSession = undefined;

@@ -43,6 +43,11 @@ export interface OAuthServerMetadata {
   authorizationEndpoint: string;
   tokenEndpoint: string;
   codeChallengeMethodsSupported: string[] | null;
+  /**
+   * RFC 8707 resource chosen from RFC 9728 metadata. null: none published, use the server URL.
+   * undefined: registered before this was recorded; recorded on the server's next use.
+   */
+  resource?: string | null;
 }
 
 /** Credentials for a dynamically registered client. */

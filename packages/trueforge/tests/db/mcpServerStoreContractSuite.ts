@@ -177,6 +177,29 @@ export function runMcpServerStoreContractSuite(getStore: () => IMcpServerStore):
     expect(await store.getClient({ id: created.id })).toBeUndefined();
   });
 
+  it('OAuth client round-trips a recorded RFC 8707 resource, including null', async () => {
+    const store = getStore();
+    const created = await store.upsertServer({
+      tenant_id: TENANT,
+      name: 'coder',
+      manifest: manifest(),
+    });
+
+    const withResource: OAuthClientRecord = {
+      ...sampleOAuthClient,
+      server: { ...sampleOAuthClient.server, resource: 'https://coder.example.com' },
+    };
+    await store.saveClient({ id: created.id, record: withResource });
+    expect(await store.getClient({ id: created.id })).toEqual(withResource);
+
+    const withNull: OAuthClientRecord = {
+      ...sampleOAuthClient,
+      server: { ...sampleOAuthClient.server, resource: null },
+    };
+    await store.saveClient({ id: created.id, record: withNull });
+    expect(await store.getClient({ id: created.id })).toEqual(withNull);
+  });
+
   it('getClient returns undefined for unknown server ids', async () => {
     const store = getStore();
     expect(await store.getClient({ id: 'missing-id' })).toBeUndefined();

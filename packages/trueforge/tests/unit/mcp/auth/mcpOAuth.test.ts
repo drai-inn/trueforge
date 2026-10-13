@@ -22,7 +22,9 @@ import {
   createMcpOAuthClient,
   ensureMcpClientRegistered,
   isMcpAuthRequired,
+  recordMcpClientResource,
   resolveMcpAuth,
+  selectMcpResource,
 } from '../../../../src/mcp/auth/mcpDcr';
 import { DEFAULT_MCP_ACCESS_TOKEN_TTL_SECONDS, mcpOAuthCallbackUrl } from '../../../../src/mcp/auth/mcpOAuthHelpers';
 import type { OAuthClientRecord } from '../../../../src/mcp/auth/types';
@@ -86,6 +88,8 @@ function stubOauthFetch(options: {
   registeredClient?: { client_id: string; client_secret?: string; token_endpoint_auth_method?: string };
   tokenResponse?: { access_token: string; refresh_token?: string; expires_in?: number; token_type?: string };
   tokenFail?: boolean;
+  /** RFC 9728 `resource` the MCP server advertises; null serves no protected resource metadata. */
+  protectedResource?: string | null;
 }): {
   registerBodies: unknown[];
   registerCallCount: () => number;
@@ -106,7 +110,10 @@ function stubOauthFetch(options: {
     const url = String(input);
 
     if (url.includes('oauth-protected-resource')) {
-      return json({ resource: SERVER_URL, authorization_servers: [AS_ORIGIN] });
+      if (options.protectedResource === null) {
+        return new Response('not found', { status: 404 });
+      }
+      return json({ resource: options.protectedResource ?? SERVER_URL, authorization_servers: [AS_ORIGIN] });
     }
 
     if (url.includes('oauth-authorization-server') || url.includes('openid-configuration')) {
@@ -168,6 +175,7 @@ const sampleClient: OAuthClientRecord = {
     authorizationEndpoint: `${AS_ORIGIN}/authorize`,
     tokenEndpoint: `${AS_ORIGIN}/token`,
     codeChallengeMethodsSupported: ['S256'],
+    resource: SERVER_URL,
   },
   client: {
     clientId: 'cached-client',
@@ -218,6 +226,7 @@ describe('createMcpOAuthClient / ensureMcpClientRegistered', () => {
     expect(result.server.authorizationEndpoint).toBe(`${AS_ORIGIN}/authorize`);
     expect(result.server.tokenEndpoint).toBe(`${AS_ORIGIN}/token`);
     expect(result.server.codeChallengeMethodsSupported).toEqual(['S256']);
+    expect(result.server.resource).toBe(SERVER_URL);
     expect(registerBodies).toHaveLength(1);
     const body = registerBodies[0] as Record<string, unknown>;
     expect(body['token_endpoint_auth_method']).toBe('client_secret_post');
@@ -737,5 +746,168 @@ describe('completeMcpAuthorization', () => {
     });
     expect(deleteClient).toHaveBeenCalledWith({ id: SERVER_ID });
     expect(await stores.mcpServerStore.getClient({ id: SERVER_ID })).toBeUndefined();
+  });
+});
+
+describe('RFC 8707 resource from RFC 9728 protected resource metadata', () => {
+  const BASE_RESOURCE = 'https://mcp.example.com';
+
+  it('selectMcpResource uses an advertised resource that covers the server URL', () => {
+    const select = (resource: string): string | null =>
+      selectMcpResource({
+        mcpServerUrl: 'https://mcp.example.com/api/experimental/mcp/http',
+        mcpServerName: SERVER_NAME,
+        resourceMetadata: { resource },
+      });
+    expect(select(BASE_RESOURCE)).toBe(BASE_RESOURCE);
+    expect(select(`${BASE_RESOURCE}/`)).toBe(`${BASE_RESOURCE}/`);
+    expect(select(`${BASE_RESOURCE}/api`)).toBe(`${BASE_RESOURCE}/api`);
+    expect(select(`${BASE_RESOURCE}/api/experimental/mcp/http`)).toBe(`${BASE_RESOURCE}/api/experimental/mcp/http`);
+  });
+
+  it('selectMcpResource returns null when no metadata resource is published', () => {
+    expect(
+      selectMcpResource({ mcpServerUrl: SERVER_URL, mcpServerName: SERVER_NAME, resourceMetadata: undefined }),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['another origin', 'https://other.example.com'],
+    ['another port', 'https://mcp.example.com:8443'],
+    ['another scheme', 'http://mcp.example.com'],
+    ['a sibling path', 'https://mcp.example.com/ss'],
+    ['a longer path', 'https://mcp.example.com/sse/child'],
+  ])('selectMcpResource refuses %s', (_label, resource) => {
+    expect(() =>
+      selectMcpResource({ mcpServerUrl: SERVER_URL, mcpServerName: SERVER_NAME, resourceMetadata: { resource } }),
+    ).toThrow(/does not cover its URL/);
+  });
+
+  it('records the base resource at registration and sends it on authorize, token exchange, and refresh', async () => {
+    const stores = newStores();
+    const { tokenBodies } = stubOauthFetch({ protectedResource: BASE_RESOURCE });
+
+    const result = await resolveMcpAuth(resolveParams(stores));
+    if (!isMcpAuthRequired(result)) throw new Error('expected authorization to be required');
+    const client = await stores.mcpServerStore.getClient({ id: SERVER_ID });
+    expect(client?.server.resource).toBe(BASE_RESOURCE);
+    expect(result.authUrl.searchParams.get('resource')).toBe(new URL(BASE_RESOURCE).href);
+
+    const state = result.authUrl.searchParams.get('state');
+    if (state === null) throw new Error('expected state');
+    const pending = await stores.tokenStore.consumePendingAuthorization({ state });
+    if (pending === undefined) throw new Error('expected pending authorization');
+    await completeMcpAuthorization({ ...stores, pending, code: 'auth-code' });
+    expect(new URLSearchParams(String(tokenBodies[0])).get('resource')).toBe(new URL(BASE_RESOURCE).href);
+
+    await stores.tokenStore.saveToken({
+      id: SERVER_ID,
+      userRef: USER_REF,
+      token: {
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+        scope: null,
+      },
+    });
+    await resolveMcpAuth(resolveParams(stores));
+    const refreshBody = new URLSearchParams(String(tokenBodies[1]));
+    expect(refreshBody.get('grant_type')).toBe('refresh_token');
+    expect(refreshBody.get('resource')).toBe(new URL(BASE_RESOURCE).href);
+  });
+
+  it('records null and falls back to the server URL without protected resource metadata', async () => {
+    const stores = newStores();
+    stubOauthFetch({ protectedResource: null });
+
+    const result = await resolveMcpAuth(resolveParams(stores));
+    if (!isMcpAuthRequired(result)) throw new Error('expected authorization to be required');
+    const client = await stores.mcpServerStore.getClient({ id: SERVER_ID });
+    expect(client?.server.resource).toBeNull();
+    expect(result.authUrl.searchParams.get('resource')).toBe(resourceUrlFromServerUrl(SERVER_URL).href);
+  });
+
+  it('refuses registration when the advertised resource does not cover the server URL', async () => {
+    const { registerCallCount } = stubOauthFetch({ protectedResource: 'https://other.example.com' });
+
+    await expect(
+      createMcpOAuthClient({
+        mcpServerUrl: SERVER_URL,
+        mcpServerName: SERVER_NAME,
+        redirectUri: mcpOAuthCallbackUrl(),
+        clientName: CLIENT_NAME,
+      }),
+    ).rejects.toThrow(/does not cover its URL/);
+    expect(registerCallCount()).toBe(0);
+  });
+});
+
+describe('recordMcpClientResource (clients registered before the resource was recorded)', () => {
+  const BASE_RESOURCE = 'https://mcp.example.com';
+  const { resource: _recorded, ...legacyServer } = sampleClient.server;
+  const legacyClient: OAuthClientRecord = { ...sampleClient, server: legacyServer };
+  const validToken = {
+    accessToken: 'old-access',
+    refreshToken: 'old-refresh',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    scope: null,
+  };
+
+  async function seedLegacy(): Promise<Stores> {
+    const stores = newStores();
+    await stores.mcpServerStore.saveClient({ id: SERVER_ID, record: legacyClient });
+    await stores.tokenStore.saveToken({ id: SERVER_ID, userRef: USER_REF, token: validToken });
+    return stores;
+  }
+
+  it('records a base resource on first use, drops tokens issued for the old audience, and keeps the client', async () => {
+    const stores = await seedLegacy();
+    const { registerCallCount } = stubOauthFetch({ protectedResource: BASE_RESOURCE });
+
+    const result = await resolveMcpAuth(resolveParams(stores));
+
+    if (!isMcpAuthRequired(result)) throw new Error('expected authorization to be required');
+    expect(result.authUrl.searchParams.get('resource')).toBe(new URL(BASE_RESOURCE).href);
+    const client = await stores.mcpServerStore.getClient({ id: SERVER_ID });
+    expect(client?.server.resource).toBe(BASE_RESOURCE);
+    expect(client?.client).toEqual(legacyClient.client);
+    expect(registerCallCount()).toBe(0);
+    expect(await stores.tokenStore.getToken({ id: SERVER_ID, userRef: USER_REF })).toBeUndefined();
+  });
+
+  it('records a resource equal to the server URL and keeps existing tokens', async () => {
+    const stores = await seedLegacy();
+    stubOauthFetch({});
+
+    const result = await resolveMcpAuth(resolveParams(stores));
+
+    expect(result).toEqual({ headers: { Authorization: 'Bearer old-access' } });
+    expect((await stores.mcpServerStore.getClient({ id: SERVER_ID }))?.server.resource).toBe(SERVER_URL);
+  });
+
+  it('records nothing when the metadata cannot be fetched, and retries on the next use', async () => {
+    const stores = await seedLegacy();
+    stubOauthFetch({ protectedResource: null });
+
+    const result = await resolveMcpAuth(resolveParams(stores));
+
+    expect(result).toEqual({ headers: { Authorization: 'Bearer old-access' } });
+    expect((await stores.mcpServerStore.getClient({ id: SERVER_ID }))?.server.resource).toBeUndefined();
+  });
+
+  it('records null for an advertised resource that does not cover the server URL, keeping old behaviour', async () => {
+    const stores = await seedLegacy();
+    stubOauthFetch({ protectedResource: 'https://other.example.com' });
+
+    await recordMcpClientResource({
+      tokenStore: stores.tokenStore,
+      mcpServerStore: stores.mcpServerStore,
+      serverId: SERVER_ID,
+      mcpServerUrl: SERVER_URL,
+      mcpServerName: SERVER_NAME,
+    });
+
+    expect((await stores.mcpServerStore.getClient({ id: SERVER_ID }))?.server.resource).toBeNull();
+    expect(await stores.tokenStore.getToken({ id: SERVER_ID, userRef: USER_REF })).toEqual(validToken);
   });
 });

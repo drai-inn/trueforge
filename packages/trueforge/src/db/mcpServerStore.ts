@@ -143,6 +143,8 @@ export interface OAuthServer {
   authorization_endpoint: string;
   token_endpoint: string;
   code_challenge_methods_supported: string[] | null;
+  /** RFC 8707 resource chosen at registration; absent on rows stored before it was recorded. */
+  resource?: string | null;
 }
 
 /** RFC 7591 DCR response (`mcp_server.oauth_client`). */
@@ -195,6 +197,7 @@ export function toStoredOAuthClientRecord(record: ContractOAuthClientRecord): {
       authorization_endpoint: record.server.authorizationEndpoint,
       token_endpoint: record.server.tokenEndpoint,
       code_challenge_methods_supported: record.server.codeChallengeMethodsSupported,
+      ...(record.server.resource !== undefined ? { resource: record.server.resource } : {}),
     },
     client: {
       client_id: record.client.clientId,
@@ -212,6 +215,7 @@ export function fromStoredOAuthClientRecord(params: {
       authorizationEndpoint: params.server.authorization_endpoint,
       tokenEndpoint: params.server.token_endpoint,
       codeChallengeMethodsSupported: params.server.code_challenge_methods_supported,
+      ...(params.server.resource !== undefined ? { resource: params.server.resource } : {}),
     },
     client: {
       clientId: params.client.client_id,

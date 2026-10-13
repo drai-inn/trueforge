@@ -1,4 +1,5 @@
 import {
+  discoverOAuthProtectedResourceMetadata,
   discoverOAuthServerInfo,
   exchangeAuthorization,
   refreshAuthorization,
@@ -6,10 +7,11 @@ import {
   startAuthorization,
 } from '@modelcontextprotocol/sdk/client/auth.js';
 import { InvalidClientError, InvalidClientMetadataError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
-import { resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
+import { checkResourceAllowed, resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
   AuthorizationServerMetadata,
   OAuthClientMetadata,
+  OAuthProtectedResourceMetadata,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -63,6 +65,80 @@ export function isMcpAuthRequired(result: ResolveMcpAuthResult): result is McpAu
   return 'authUrl' in result;
 }
 
+/**
+ * RFC 8707 `resource` from the server's RFC 9728 metadata, by the MCP SDK's `selectResourceURL` rule:
+ * same origin and a path prefix of the server URL (some servers, e.g. Coder, audience-bind tokens to
+ * their base URL). null when none is published. Anything else is refused (RFC 9728 Section 7.3).
+ */
+export function selectMcpResource(params: {
+  mcpServerUrl: string;
+  mcpServerName: string;
+  resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+}): string | null {
+  const advertised = params.resourceMetadata?.resource;
+  if (!advertised) {
+    return null;
+  }
+  const requested = resourceUrlFromServerUrl(params.mcpServerUrl);
+  let allowed: boolean;
+  try {
+    allowed = checkResourceAllowed({ requestedResource: requested, configuredResource: advertised });
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    throw new McpDcrConfigurationError(
+      `MCP server '${params.mcpServerName}' publishes protected resource '${advertised}', which does not cover its URL '${requested.href}'`,
+    );
+  }
+  return advertised;
+}
+
+/**
+ * Records the resource on a client registered before it was stored, the first time the server is used.
+ * Tokens for this server are dropped only when the recorded resource differs from the server URL that
+ * was sent before, because they were issued for that other audience. A discovery failure records
+ * nothing and is retried next time; an advertised resource that does not cover the server URL records
+ * null, keeping the previous behaviour for a connector that already works.
+ */
+export async function recordMcpClientResource<TTransaction>(params: {
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  mcpServerStore: IOAuthClientStore<TTransaction>;
+  serverId: string;
+  mcpServerUrl: string;
+  mcpServerName: string;
+}): Promise<void> {
+  const client = await params.mcpServerStore.getClient({ id: params.serverId });
+  if (client === undefined || client.server.resource !== undefined) {
+    return;
+  }
+  let resourceMetadata: OAuthProtectedResourceMetadata;
+  try {
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(params.mcpServerUrl, undefined, mcpOAuthFetch);
+  } catch {
+    return;
+  }
+  let resource: string | null;
+  try {
+    resource = selectMcpResource({ ...params, resourceMetadata });
+  } catch {
+    resource = null;
+  }
+  await params.mcpServerStore.saveClient({
+    id: params.serverId,
+    record: { ...client, server: { ...client.server, resource } },
+  });
+  if (resource !== null && new URL(resource).href !== resourceUrlFromServerUrl(params.mcpServerUrl).href) {
+    await params.tokenStore.deleteTokensForServer({ id: params.serverId });
+    await params.tokenStore.deletePendingAuthorizationsForServer({ id: params.serverId });
+  }
+}
+
+/** `resource` for authorization, token and refresh requests; legacy and null records use the server URL. */
+export function mcpResourceIndicator(server: OAuthClientRecord['server'], mcpServerUrl: string): URL {
+  return server.resource ? new URL(server.resource) : resourceUrlFromServerUrl(mcpServerUrl);
+}
+
 async function registerMcpClientWithAuthMethodFallback(params: {
   authorizationServerUrl: string;
   metadata: AuthorizationServerMetadata;
@@ -70,9 +146,17 @@ async function registerMcpClientWithAuthMethodFallback(params: {
   mcpServerName: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  resource: string | null;
 }): Promise<OAuthClientRecord> {
-  const { authorizationServerUrl, metadata, clientMetadata, mcpServerName, authorizationEndpoint, tokenEndpoint } =
-    params;
+  const {
+    authorizationServerUrl,
+    metadata,
+    clientMetadata,
+    mcpServerName,
+    authorizationEndpoint,
+    tokenEndpoint,
+    resource,
+  } = params;
   let fullInfo;
   try {
     fullInfo = await registerClient(authorizationServerUrl, {
@@ -113,6 +197,7 @@ async function registerMcpClientWithAuthMethodFallback(params: {
       authorizationEndpoint,
       tokenEndpoint,
       codeChallengeMethodsSupported: metadata.code_challenge_methods_supported ?? null,
+      resource,
     },
     client: {
       clientId: fullInfo.client_id,
@@ -143,7 +228,8 @@ export async function createMcpOAuthClient(params: {
       424,
     );
   }
-  const { authorizationServerUrl, authorizationServerMetadata: metadata } = discovered;
+  const { authorizationServerUrl, authorizationServerMetadata: metadata, resourceMetadata } = discovered;
+  const resource = selectMcpResource({ mcpServerUrl, mcpServerName, resourceMetadata });
   if (!metadata?.registration_endpoint) {
     throw new McpDcrConfigurationError(
       `MCP server '${mcpServerName}' has no DCR support (missing registration_endpoint); auth.type: dcr is misconfigured for this server`,
@@ -172,6 +258,7 @@ export async function createMcpOAuthClient(params: {
     mcpServerName,
     authorizationEndpoint: metadata.authorization_endpoint,
     tokenEndpoint: metadata.token_endpoint,
+    resource,
   });
 }
 
@@ -218,7 +305,7 @@ export async function buildMcpAuthorizationUrl(params: {
       metadata: mcpAuthorizationServerMetadata(params.client.server),
       clientInformation: mcpClientInformation(params.client.client),
       redirectUrl: redirectUri,
-      resource: resourceUrlFromServerUrl(params.mcpServerUrl),
+      resource: mcpResourceIndicator(params.client.server, params.mcpServerUrl),
       state,
     });
   } catch (error: unknown) {
@@ -247,6 +334,7 @@ export async function resolveMcpAuth(params: {
   clientName: string;
   returnTo?: string;
 }): Promise<ResolveMcpAuthResult> {
+  await recordMcpClientResource(params);
   const nowMs = Date.now();
   const tokenKey = { id: params.serverId, userRef: params.userRef };
   const token = await params.tokenStore.getToken(tokenKey);
@@ -266,7 +354,7 @@ export async function resolveMcpAuth(params: {
         metadata: mcpAuthorizationServerMetadata(client.server),
         clientInformation: mcpClientInformation(client.client),
         refreshToken: token.refreshToken,
-        resource: resourceUrlFromServerUrl(params.mcpServerUrl),
+        resource: mcpResourceIndicator(client.server, params.mcpServerUrl),
         fetchFn: mcpOAuthFetch,
       });
       const saved = oauthTokensToOAuthToken(refreshed, nowMs, token.refreshToken);
@@ -324,7 +412,7 @@ export async function completeMcpAuthorization<TTransaction>(params: {
       authorizationCode: params.code,
       codeVerifier: pending.codeVerifier,
       redirectUri: mcpOAuthCallbackUrl(),
-      resource: resourceUrlFromServerUrl(pending.mcpServerUrl),
+      resource: mcpResourceIndicator(client.server, pending.mcpServerUrl),
       fetchFn: mcpOAuthFetch,
     });
   } catch (error: unknown) {

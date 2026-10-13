@@ -174,6 +174,7 @@ describe('mcp-servers routers', () => {
           authorizationEndpoint: 'https://auth.example.com/authorize',
           tokenEndpoint: 'https://auth.example.com/token',
           codeChallengeMethodsSupported: ['S256'],
+          resource: null,
         },
         client: {
           clientId: 'seed-client',
